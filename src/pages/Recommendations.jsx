@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import HotelCard from "../components/HotelCard";
+import Header from "../components/Header";
 
 const RecommendationPage = () => {
   const [recommendations, setRecommendations] = useState([]);
@@ -56,7 +57,8 @@ const RecommendationPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-50">
+      <Header />
       <h1 className="text-3xl font-bold text-center mb-6">
         🎯 Personalized Hotel Recommendations
       </h1>

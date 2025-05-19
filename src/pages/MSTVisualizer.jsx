@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { primMST } from "../utils/mstAlgorithm";
 import axios from "axios";
+import Header from "../components/Header";
 
 const fallbackImages = [
   "https://source.unsplash.com/400x300/?hotel,room",
@@ -74,7 +75,8 @@ const MstVisualizer = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-50">
+      <Header />
       <h1 className="text-3xl font-bold text-center mb-6">Prim's MST Visualizer</h1>
 
       <div className="flex justify-center mb-6">

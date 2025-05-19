@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
+import Header from "../components/Header";
 import PlaygroundVisualizer from "../components/PlaygroundVisualizer";
 
 const Playground = () => {
@@ -9,13 +10,12 @@ const Playground = () => {
   const [algorithm, setAlgorithm] = useState("dijkstra");
   const [pathResult, setPathResult] = useState(null);
 
-  // Fetch hotels from Foursquare on load
   useEffect(() => {
     const fetchHotels = async () => {
       try {
         const res = await axios.get("https://api.foursquare.com/v3/places/search", {
           headers: {
-            Authorization: "fsq3DJaU0tLmlGDTuxhMwEWxylkxAgbDZsRvSYbVF1QRcyE=", // your API key
+            Authorization: "fsq3DJaU0tLmlGDTuxhMwEWxylkxAgbDZsRvSYbVF1QRcyE=", // Replace with your key
           },
           params: {
             ll: "30.3165,78.0322",
@@ -25,7 +25,7 @@ const Playground = () => {
           },
         });
 
-        const fetched = res.data.results.map((place, i) => ({
+        const data = res.data.results.map((place) => ({
           id: place.fsq_id,
           name: place.name,
           location: {
@@ -34,7 +34,7 @@ const Playground = () => {
           },
         }));
 
-        setHotels(fetched);
+        setHotels(data);
       } catch (err) {
         console.error("Hotel fetch error:", err);
       }
@@ -43,7 +43,6 @@ const Playground = () => {
     fetchHotels();
   }, []);
 
-  // Run algorithm on backend
   const runAlgorithm = async () => {
     if (!fromHotel || !toHotel) {
       alert("Please select both source and destination.");
@@ -64,13 +63,16 @@ const Playground = () => {
 
       setPathResult(res.data);
     } catch (err) {
-      console.error("Algorithm error:", err.message);
-      alert("Failed to run algorithm.");
+      console.error("Algorithm error:", err.response?.data || err.message);
+      alert("Failed to run algorithm: " + (err.response?.data?.message || err.message));
     }
   };
 
+  const getHotelById = (id) => hotels.find((h) => h.id === id);
+
   return (
-    <div className="min-h-screen bg-gray-100 p-6">
+    <div className="min-h-screen bg-gray-100">
+      <Header />
       <h1 className="text-3xl font-bold text-center mb-6">🧪 Hotel Graph Playground</h1>
 
       {/* Controls */}
@@ -86,6 +88,8 @@ const Playground = () => {
               <option value="dijkstra">Dijkstra (Shortest Distance)</option>
               <option value="a-star">A* Algorithm</option>
               <option value="prim">Prim's MST</option>
+              <option value="bfs">BFS Algorithm</option>
+              <option value="bellman">Bellman–Ford Algorithm</option>
             </select>
           </div>
 
@@ -98,7 +102,9 @@ const Playground = () => {
             >
               <option value="">-- Select From --</option>
               {hotels.map((h) => (
-                <option key={h.id} value={h.id}>{h.name}</option>
+                <option key={h.id} value={h.id}>
+                  {h.name}
+                </option>
               ))}
             </select>
           </div>
@@ -112,7 +118,9 @@ const Playground = () => {
             >
               <option value="">-- Select To --</option>
               {hotels.map((h) => (
-                <option key={h.id} value={h.id}>{h.name}</option>
+                <option key={h.id} value={h.id}>
+                  {h.name}
+                </option>
               ))}
             </select>
           </div>
@@ -128,31 +136,53 @@ const Playground = () => {
         </div>
       </div>
 
-      {/* Result */}
+      {/* Results */}
       {pathResult && (
         <>
           <div className="max-w-4xl mx-auto bg-white rounded shadow p-4 mb-4">
             <h2 className="text-xl font-semibold mb-2">✅ Result</h2>
-            <p><strong>Algorithm:</strong> {algorithm}</p>
-            {pathResult.path && (
-              <p>
-  <strong>Path:</strong>{" "}
-  {pathResult.path.map((node, index) => (
-    <span key={index}>
-      {node?.name || node?.id || `Node ${index + 1}`}
-      {index < pathResult.path.length - 1 && " → "}
-    </span>
-  ))}
-</p>
+            <p>
+              <strong>Algorithm:</strong> {algorithm}
+            </p>
 
-            
+            {/* Render path result dynamically */}
+            {pathResult.path && (
+              <div className="mt-2">
+                <strong>Path:</strong>{" "}
+                {pathResult.path.map((item, index) => {
+                  if (typeof item === "string") {
+                    const hotel = getHotelById(item);
+                    return (
+                      <span key={item}>
+                        {hotel?.name || item}
+                        {index < pathResult.path.length - 1 && " → "}
+                      </span>
+                    );
+                  }
+
+                  if (typeof item === "object" && item.from && item.to) {
+                    const from = getHotelById(item.from);
+                    const to = getHotelById(item.to);
+                    return (
+                      <div key={`${item.from}-${item.to}`} className="text-sm text-blue-600">
+                        🛤️ {from?.name || item.from} → {to?.name || item.to} ({item.weight.toFixed(2)} km)
+                      </div>
+                    );
+                  }
+
+                  return null;
+                })}
+              </div>
             )}
-            {pathResult.totalDistance && (
-              <p><strong>Total Distance:</strong> {pathResult.totalDistance.toFixed(2)} km</p>
+
+            {typeof pathResult.totalDistance === "number" && (
+              <p className="mt-2">
+                <strong>Total Distance:</strong> {pathResult.totalDistance.toFixed(2)} km
+              </p>
             )}
           </div>
 
-          {/* Visualizer Map */}
+          {/* Map Visualizer */}
           <PlaygroundVisualizer
             hotels={hotels}
             path={pathResult.path}

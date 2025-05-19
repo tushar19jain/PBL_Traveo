@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { aStarPath } from "../utils/aStarPath";
-import { MapContainer, TileLayer, Marker, Polyline, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "leaflet-routing-machine";
+import "leaflet-routing-machine/dist/leaflet-routing-machine.css";
 
 import icon from "leaflet/dist/images/marker-icon.png";
 import icon2x from "leaflet/dist/images/marker-icon-2x.png";
 import shadow from "leaflet/dist/images/marker-shadow.png";
+import Header from "../components/Header";
 
 // Fix Leaflet icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -25,7 +28,92 @@ const fallbackImages = [
   "https://source.unsplash.com/400x300/?guesthouse",
 ];
 
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function buildGraph(hotels, threshold = 2) {
+  const graph = {};
+  for (let i = 0; i < hotels.length; i++) {
+    graph[hotels[i].id] = [];
+    for (let j = 0; j < hotels.length; j++) {
+      if (i === j) continue;
+      const dist = haversine(
+        hotels[i].location.lat,
+        hotels[i].location.lng,
+        hotels[j].location.lat,
+        hotels[j].location.lng
+      );
+      if (dist <= threshold) {
+        graph[hotels[i].id].push(hotels[j].id);
+      }
+    }
+  }
+  return graph;
+}
+
+const RoutingPath = ({ from, to, mode }) => {
+  const map = useMap();
+  const routingRef = useRef(null);
+
+  useEffect(() => {
+    if (!from || !to) return;
+
+    if (routingRef.current && map) {
+      try {
+        map.removeControl(routingRef.current);
+      } catch (err) {
+        console.warn("Could not remove previous routing layer", err);
+      }
+    }
+
+    const routingControl = L.Routing.control({
+      waypoints: [L.latLng(...from), L.latLng(...to)],
+      router: new L.Routing.OSRMv1({
+  profile: mode || "car",
+  serviceUrl: "https://router.project-osrm.org/route/v1"
+}),
+
+      routeWhileDragging: false,
+      addWaypoints: false,
+      draggableWaypoints: false,
+      show: false,
+      lineOptions: {
+        styles: [
+          { color: "blue", weight: 6, opacity: 0.7 },
+          { color: "white", weight: 3, opacity: 0.9 },
+        ],
+      },
+    }).addTo(map);
+
+    routingRef.current = routingControl;
+
+    return () => {
+      try {
+        if (routingRef.current && map) {
+          map.removeControl(routingRef.current);
+        }
+      } catch (err) {
+        console.warn("Cleanup failed for routing control", err);
+      }
+      routingRef.current = null;
+    };
+  }, [from, to, mode, map]);
+
+  return null;
+};
+
 const PathFinder = () => {
+  const [travelMode, setTravelMode] = useState("car");
   const [hotels, setHotels] = useState([]);
   const [startHotel, setStartHotel] = useState(null);
   const [endHotel, setEndHotel] = useState(null);
@@ -41,7 +129,7 @@ const PathFinder = () => {
       try {
         const res = await axios.get("https://api.foursquare.com/v3/places/search", {
           headers: {
-            Authorization: "fsq3DJaU0tLmlGDTuxhMwEWxylkxAgbDZsRvSYbVF1QRcyE=", 
+            Authorization: "fsq3DJaU0tLmlGDTuxhMwEWxylkxAgbDZsRvSYbVF1QRcyE=",
           },
           params: {
             ll: `${lat},${lng}`,
@@ -82,7 +170,15 @@ const PathFinder = () => {
     if (!startHotel || !endHotel) return;
     setLoading(true);
 
-    const pathResult = aStarPath(hotels, startHotel, endHotel);
+    const graphData = buildGraph(hotels, 5);
+    const pathResult = aStarPath(hotels, graphData, startHotel, endHotel);
+
+    if (!pathResult.length) {
+      alert("⚠️ No path found. Try choosing closer hotels.");
+      setLoading(false);
+      return;
+    }
+
     const resolvedPath = pathResult.map((id) => hotels.find((h) => h.id === id));
     setPath(resolvedPath);
 
@@ -101,34 +197,38 @@ const PathFinder = () => {
     scrollToMap();
   };
 
+  const from = path[0] ? [path[0].location.lat, path[0].location.lng] : null;
+  const to = path[path.length - 1] ? [path[path.length - 1].location.lat, path[path.length - 1].location.lng] : null;
+
   return (
-    <div className="min-h-screen bg-gray-100 px-6 py-8">
+    <div className="min-h-screen bg-gray-100 ">
+      <Header />
       <h1 className="text-2xl font-bold text-center mb-6">A* Pathfinding Visualizer</h1>
 
       <div className="flex flex-wrap justify-center items-center gap-4 mb-6">
         <div>
-          <label className="mr-2">Start Hotel:</label>
+          <label className="mr-2">Travel Mode:</label>
           <select
-            value={startHotel}
-            onChange={(e) => setStartHotel(e.target.value)}
+            value={travelMode}
+            onChange={(e) => setTravelMode(e.target.value)}
             className="p-2 border rounded"
           >
-            {hotels.map((h) => (
-              <option key={h.id} value={h.id}>{h.name}</option>
-            ))}
+            <option value="car">Car</option>
+            <option value="bike">Bike</option>
+            <option value="foot">Bus/Walk</option>
+          </select>
+        </div>
+        <div>
+          <label className="mr-2">Start Hotel:</label>
+          <select value={startHotel || ""} onChange={(e) => setStartHotel(e.target.value)} className="p-2 border rounded">
+            {hotels.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
         </div>
 
         <div>
           <label className="mr-2">End Hotel:</label>
-          <select
-            value={endHotel}
-            onChange={(e) => setEndHotel(e.target.value)}
-            className="p-2 border rounded"
-          >
-            {hotels.map((h) => (
-              <option key={h.id} value={h.id}>{h.name}</option>
-            ))}
+          <select value={endHotel || ""} onChange={(e) => setEndHotel(e.target.value)} className="p-2 border rounded">
+            {hotels.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
         </div>
 
@@ -169,7 +269,6 @@ const PathFinder = () => {
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution='&copy; OpenStreetMap contributors'
             />
-
             {path.map((hotel, i) => (
               <Marker key={hotel.id} position={[hotel.location.lat, hotel.location.lng]}>
                 <Popup>
@@ -178,31 +277,12 @@ const PathFinder = () => {
                 </Popup>
               </Marker>
             ))}
-
-            <Polyline
-              positions={path.map((h) => [h.location.lat, h.location.lng])}
-              color="blue"
-              weight={4}
-            />
+            {from && to && <RoutingPath from={from} to={to} mode={travelMode} />}
           </MapContainer>
         )}
       </div>
     </div>
   );
 };
-
-// Haversine for distance
-function haversine(lat1, lon1, lat2, lon2) {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
 
 export default PathFinder;
